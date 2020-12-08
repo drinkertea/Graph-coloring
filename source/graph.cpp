@@ -119,6 +119,27 @@ Graph::ColorToVerts Graph::Colorize(ColorizationType type) const
     return result;
 }
 
+Graph Graph::GetSubGraph(uint32_t vertex) const
+{
+    Graph sub(m_graph.size());
+    for (auto a : m_adj[vertex])
+    {
+        for (auto b : (m_adj[vertex] * m_adj[a]))
+        {
+            if (a == b)
+                continue;
+
+            sub.m_graph[a][b] = true;
+            sub.m_graph[b][a] = true;
+
+            sub.m_adj[a].emplace(b);
+            sub.m_adj[b].emplace(a);
+        }
+    }
+
+    return sub;
+}
+
 std::vector<uint32_t> Graph::GetOrderedNodes(ColorizationType type) const
 {
     std::vector<uint32_t> nodes(m_graph.size(), 0);
@@ -165,73 +186,9 @@ std::vector<uint32_t> Graph::GetOrderedNodes(ColorizationType type) const
     return nodes;
 }
 
-struct LocalSearchHelper
+std::vector<std::set<Graph::WeightNode>> Graph::GetWeightlyNonAdj(uint32_t start, const std::vector<double>& weights) const
 {
-    const std::vector<std::set<WeightNode>>& non_adj_sorted;
-    std::mt19937 g{ seed++ };
-
-    void Search(const std::vector<uint32_t>& constr, const std::vector<double>& weights, uint32_t n, const std::function<void(std::vector<uint32_t>&&)>& callback)
-    {
-        constexpr uint32_t k = 3;
-        if (constr.size() <= k * 2 + 1)
-            return;
-
-        auto nodes = constr;
-        std::array<uint32_t, k> banned;
-        for (uint32_t i = 0; i < k; ++i)
-        {
-            std::uniform_int_distribution<size_t> dist(0, nodes.size() - 1);
-            auto val = dist(g);
-            std::swap(nodes[val], nodes.back());
-            banned[i] = nodes.back();
-            nodes.pop_back();
-        }
-
-        auto t = non_adj_sorted[nodes.front()];
-        double weight = weights[nodes.front()];
-        for (uint32_t i = 1; i < nodes.size(); ++i)
-        {
-            t *= non_adj_sorted[nodes[i]];
-            weight += weights[nodes[i]];
-        }
-        std::erase_if(t, [&banned](const auto& v) {
-            return banned[0] == v.label || banned[1] == v.label || banned[2] == v.label;
-        });
-
-        if (t.size() <= k)
-            return;
-
-        for (const auto& start_node : t)
-        {
-            auto start = start_node.label;
-            auto tt = t * non_adj_sorted[start];
-            std::vector<uint32_t> new_nodes = { start };
-            double add_weight = weights[start];
-
-            while (!tt.empty())
-            {
-                auto node = tt.begin()->label;
-                add_weight += tt.begin()->weight;
-                new_nodes.emplace_back(node);
-
-                tt *= non_adj_sorted[node];
-            }
-
-            if (EpsValue(weight + add_weight) <= 1.0)
-                continue;
-
-            if (new_nodes.size() + nodes.size() < constr.size())
-                continue;
-
-            new_nodes.insert(new_nodes.end(), nodes.begin(), nodes.end());
-            callback(std::move(new_nodes));
-        }
-    }
-};
-
-std::vector<std::set<WeightNode>> Graph::GetWeightlyNonAdj(uint32_t start, const std::vector<double>& weights) const
-{
-    std::vector<std::set<WeightNode>> non_adj_sorted(m_graph.size());
+    std::vector<std::set<Graph::WeightNode>> non_adj_sorted(m_graph.size());
     for (uint32_t i = 0; i < m_graph.size(); ++i)
     {
         for (auto j : m_non_adj[i])
@@ -243,14 +200,140 @@ std::vector<std::set<WeightNode>> Graph::GetWeightlyNonAdj(uint32_t start, const
     return non_adj_sorted;
 }
 
+std::set<std::set<uint32_t>> Graph::GetHeuristicConstr(const std::vector<uint32_t>& ordered_nodes) const
+{
+    std::vector<uint32_t> nodes_order(m_graph.size());
+    uint32_t order = 0;
+    for (auto node : ordered_nodes)
+        nodes_order[node] = order++;
+
+    struct Node
+    {
+        uint32_t val = 0;
+        const std::vector<uint32_t>& order;
+
+        bool operator<(const Node& r) const
+        {
+            return std::tie(order[val], val) < std::tie(order[r.val], r.val);
+        }
+    };
+
+    std::vector<std::set<Node>> m_non_adj;
+    m_non_adj.resize(m_graph.size());
+    for (uint32_t i = 0; i < m_graph.size(); ++i)
+    {
+        for (uint32_t j = 0; j < m_graph.size(); ++j)
+        {
+            if (i == j || m_graph[i][j])
+                continue;
+
+            m_non_adj[i].emplace(Node{ j, nodes_order });
+            m_non_adj[j].emplace(Node{ i, nodes_order });
+        }
+    }
+
+    std::set<Node> nodes;
+    for (uint32_t i = 0; i < m_graph.size(); ++i)
+        nodes.emplace(Node{ i, nodes_order });
+
+    std::set<std::set<uint32_t>> res;
+    while (!nodes.empty())
+    {
+        std::set<Node> constr;
+        constr.emplace(Node{ nodes.begin()->val, nodes_order });
+        auto t = m_non_adj[nodes.begin()->val];
+        nodes.erase(nodes.begin());
+        while (!t.empty())
+        {
+            auto first = t.begin()->val;
+            t = t * m_non_adj[first];
+            constr.emplace(Node{ first, nodes_order });
+        }
+
+        if (constr.size() < 4)
+            continue;
+
+        std::set<uint32_t> converted;
+        for (const auto& node : constr)
+            converted.emplace(node.val);
+
+        res.emplace(converted);
+    }
+    return res;
+}
+
 void Graph::GetWeightHeuristicConstrFor(
     uint32_t start,
     const std::vector<double>& weights,
     const std::function<void(std::vector<uint32_t>&&)>& callback
 ) const
 {
+    struct LocalSearchHelper
+    {
+        const std::vector<std::set<Graph::WeightNode>>& non_adj_sorted;
+        std::mt19937 g{ seed++ };
+
+        void Search(const std::vector<uint32_t>& constr, const std::vector<double>& weights, uint32_t n, const std::function<void(std::vector<uint32_t>&&)>& callback)
+        {
+            constexpr uint32_t k = 3;
+            if (constr.size() <= k * 2 + 1)
+                return;
+
+            auto nodes = constr;
+            std::array<uint32_t, k> banned;
+            for (uint32_t i = 0; i < k; ++i)
+            {
+                std::uniform_int_distribution<size_t> dist(0, nodes.size() - 1);
+                auto val = dist(g);
+                std::swap(nodes[val], nodes.back());
+                banned[i] = nodes.back();
+                nodes.pop_back();
+            }
+
+            auto t = non_adj_sorted[nodes.front()];
+            double weight = weights[nodes.front()];
+            for (uint32_t i = 1; i < nodes.size(); ++i)
+            {
+                t *= non_adj_sorted[nodes[i]];
+                weight += weights[nodes[i]];
+            }
+            std::erase_if(t, [&banned](const auto& v) {
+                return banned[0] == v.label || banned[1] == v.label || banned[2] == v.label;
+            });
+
+            if (t.size() <= k)
+                return;
+
+            for (const auto& start_node : t)
+            {
+                auto start = start_node.label;
+                auto tt = t * non_adj_sorted[start];
+                std::vector<uint32_t> new_nodes = { start };
+                double add_weight = weights[start];
+
+                while (!tt.empty())
+                {
+                    auto node = tt.begin()->label;
+                    add_weight += tt.begin()->weight;
+                    new_nodes.emplace_back(node);
+
+                    tt *= non_adj_sorted[node];
+                }
+
+                if (EpsValue(weight + add_weight) <= 1.0)
+                    continue;
+
+                if (new_nodes.size() + nodes.size() < constr.size())
+                    continue;
+
+                new_nodes.insert(new_nodes.end(), nodes.begin(), nodes.end());
+                callback(std::move(new_nodes));
+            }
+        }
+    };
+
     auto non_adj = GetWeightlyNonAdj(start, weights);
-    std::set<WeightNode> nodes = non_adj[start];
+    std::set<Graph::WeightNode> nodes = non_adj[start];
 
     std::vector<uint32_t> constr;
     constr.reserve(m_graph.size());

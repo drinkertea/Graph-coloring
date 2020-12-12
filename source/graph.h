@@ -45,6 +45,7 @@ struct Graph
     {
         m_graph.resize(size, std::vector<bool>(size, false));
         m_adj.resize(size);
+        m_random_metrics.resize(size);
     }
 
     enum class ColorizationType
@@ -90,9 +91,10 @@ struct Graph
     }
 
     Graph GetSubGraph(uint32_t vertex) const;
+    Graph GetInversed() const;
 
     void GetWeightHeuristicConstrFor(
-        uint32_t start,
+        size_t start,
         const std::vector<double>& weights,
         const std::function<void(std::vector<uint32_t>&&)>& callback
     ) const;
@@ -124,7 +126,8 @@ private:
 
     std::vector<uint32_t>             GetOrderedNodes(ColorizationType type) const;
     std::set<std::set<uint32_t>>      GetHeuristicConstr(const std::vector<uint32_t>& ordered_nodes) const;
-    std::vector<std::set<WeightNode>> GetWeightlyNonAdj(uint32_t start, const std::vector<double>& weights) const;
+    std::vector<std::set<WeightNode>> GetWeightlyNonAdj(size_t start, const std::vector<double>& weights) const;
+    void                              Finalize();
 
 private:
     std::vector<std::vector<bool>>  m_graph;

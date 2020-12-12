@@ -59,30 +59,9 @@ Graph::Graph(const std::string& path)
             throw std::runtime_error("Invalid file format!");
         }
     }
-
-    m_non_adj.resize(m_graph.size());
-    for (uint32_t i = 0; i < m_graph.size(); ++i)
-    {
-        for (uint32_t j = i + 1; j < m_graph.size(); ++j)
-        {
-            if (m_graph[i][j])
-                continue;
-
-            m_non_adj[i].emplace(j);
-            m_non_adj[j].emplace(i);
-        }
-    }
-
-    for (auto& rm : m_random_metrics)
-    {
-        auto ordered_nodes = GetOrderedNodes(ColorizationType::mindegree_random);
-        rm.resize(m_graph.size());
-        uint32_t order = 0;
-        for (auto node : ordered_nodes)
-            rm[node] = order++;
-    }
-
     density = double(2 * edge_count) / double(vertex_count * (vertex_count - 1));
+
+    Finalize();
 }
 
 Graph::ColorToVerts Graph::Colorize(ColorizationType type) const
@@ -140,6 +119,27 @@ Graph Graph::GetSubGraph(uint32_t vertex) const
     return sub;
 }
 
+Graph Graph::GetInversed() const
+{
+    Graph sub(m_graph.size());
+
+    for (uint32_t a = 0; a < m_graph.size(); ++a)
+    {
+        for (auto b : m_non_adj[a])
+        {
+            sub.m_graph[a][b] = true;
+            sub.m_graph[b][a] = true;
+
+            sub.m_adj[a].emplace(b);
+            sub.m_adj[b].emplace(a);
+        }
+    }
+
+    sub.Finalize();
+
+    return sub;
+}
+
 std::vector<uint32_t> Graph::GetOrderedNodes(ColorizationType type) const
 {
     std::vector<uint32_t> nodes(m_graph.size(), 0);
@@ -186,7 +186,7 @@ std::vector<uint32_t> Graph::GetOrderedNodes(ColorizationType type) const
     return nodes;
 }
 
-std::vector<std::set<Graph::WeightNode>> Graph::GetWeightlyNonAdj(uint32_t start, const std::vector<double>& weights) const
+std::vector<std::set<Graph::WeightNode>> Graph::GetWeightlyNonAdj(size_t start, const std::vector<double>& weights) const
 {
     std::vector<std::set<Graph::WeightNode>> non_adj_sorted(m_graph.size());
     for (uint32_t i = 0; i < m_graph.size(); ++i)
@@ -198,6 +198,31 @@ std::vector<std::set<Graph::WeightNode>> Graph::GetWeightlyNonAdj(uint32_t start
         }
     }
     return non_adj_sorted;
+}
+
+void Graph::Finalize()
+{
+    m_non_adj.resize(m_graph.size());
+    for (uint32_t i = 0; i < m_graph.size(); ++i)
+    {
+        for (uint32_t j = i + 1; j < m_graph.size(); ++j)
+        {
+            if (m_graph[i][j])
+                continue;
+
+            m_non_adj[i].emplace(j);
+            m_non_adj[j].emplace(i);
+        }
+    }
+
+    for (auto& rm : m_random_metrics)
+    {
+        auto ordered_nodes = GetOrderedNodes(ColorizationType::mindegree_random);
+        rm.resize(m_graph.size());
+        uint32_t order = 0;
+        for (auto node : ordered_nodes)
+            rm[node] = order++;
+    }
 }
 
 std::set<std::set<uint32_t>> Graph::GetHeuristicConstr(const std::vector<uint32_t>& ordered_nodes) const
@@ -263,7 +288,7 @@ std::set<std::set<uint32_t>> Graph::GetHeuristicConstr(const std::vector<uint32_
 }
 
 void Graph::GetWeightHeuristicConstrFor(
-    uint32_t start,
+    size_t start,
     const std::vector<double>& weights,
     const std::function<void(std::vector<uint32_t>&&)>& callback
 ) const

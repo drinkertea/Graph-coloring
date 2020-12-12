@@ -4,6 +4,7 @@
 
 #include <iostream>
 #include <algorithm>
+#include <fstream>
 #include <chrono>
 #include <thread>
 #include <Windows.h>
@@ -36,6 +37,8 @@ void Test(const std::string& file_path, const std::string& path)
         //    test_result += " INTERRUPTED";
 
         max_clique = bnb_result;
+
+        solver::Colorize(g);
     }
     catch (std::runtime_error&)
     {

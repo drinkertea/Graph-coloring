@@ -51,20 +51,3 @@ static std::set<uint32_t> ExtractClique(const std::vector<double>& variables)
             clique.emplace(i);
     return clique;
 }
-
-struct Solution
-{
-    double              upper_bound = 0.0;
-    std::vector<double> variables;
-    size_t              branching_index = g_invalid_index;
-    uint64_t            integer_count = 0;
-
-    template <typename T>
-    double GetNodesWeight(const T& nodes) const
-    {
-        double sum = 0.0;
-        for (auto x : nodes)
-            sum += variables[x];
-        return sum;
-    }
-};

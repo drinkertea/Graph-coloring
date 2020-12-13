@@ -27,7 +27,7 @@ struct MainProblemModel
 
     MainSolution Solve() const;
 
-    void AddVariables(const std::set<models::IndependetSet>& ind_sets);
+    bool AddVariables(const std::set<models::IndependetSet>& ind_sets);
 
 private:
     const Graph&            m_graph;
@@ -38,8 +38,9 @@ private:
 
 struct SupportSolution
 {
-    bool optimal = false;
-    bool aborted = false;
+    bool          optimal = false;
+    bool          aborted = false;
+    double        upper_bound = 0.0;
     IndependetSet ind_set;
 };
 
@@ -50,7 +51,7 @@ struct SupportProblemModel
     SupportProblemModel(const Graph& inv_graph, const Variables& weights);
     ~SupportProblemModel();
 
-    SupportSolution Solve(bool conditional = true) const;
+    SupportSolution Solve(bool exact = false) const;
 
 private:
     const Graph&            m_graph;

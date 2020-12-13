@@ -100,10 +100,35 @@ struct MainProblemModelHolder : public ModelHolderBase
     ~MainProblemModelHolder() override = default;
 };
 
-ILOSIMPLEXCALLBACK0(MyCallback)
+std::vector<double> g_wtf;
+std::vector<double> g_wtf1;
+
+template <typename T>
+void UpdateSolution(SupportSolution& solution, const IloNumVarArray& variables, T& owner)
 {
-    if (isFeasible() && EpsValue(getObjValue()) > 1.0)
+    solution.upper_bound = owner.getObjValue();
+    if (EpsValue(solution.upper_bound) == 0.0)
+        solution.upper_bound = owner.getBestObjValue();
+
+    IloNumArray vars(owner.getEnv(), variables.getSize());
+    owner.getValues(vars, variables);
+    std::vector<double> deb_vars;
+    for (int i = 0; i < variables.getSize(); ++i)
+    {
+        deb_vars.emplace_back(EpsValue(vars[i]));
+        if (EpsValue(vars[i]) == 1.0)
+            solution.ind_set.emplace(i);
+    }
+}
+
+ILOCPLEXGOAL2(MyBranchGoal, SupportSolution&, m_solution, IloNumVarArray, m_variables)
+{
+    if (isIntegerFeasible() && EpsValue(getObjValue()) > 1.0)
+    {
+        UpdateSolution(m_solution, m_variables, *this);
         abort();
+    }
+    return IloCplex::Goal{};
 }
 
 struct SupportProblemModelHolder : public ModelHolderBase
@@ -129,32 +154,29 @@ struct SupportProblemModelHolder : public ModelHolderBase
         m_model.add(m_constrains);
     }
 
-    SupportSolution Solve(bool conditional) const
+    SupportSolution Solve(bool exact) const
     {
         IloCplex solver(m_model);
         solver.setOut(m_env.getNullStream());
 
-        if (conditional)
+        SupportSolution res{};
+        if (!exact)
         {
             solver.setParam(IloCplex::Param::TimeLimit, 0.5);
-            solver.use(MyCallback(m_env));
+            if (!solver.solve(MyBranchGoal(m_env, res, m_variables)))
+                return {};
         }
-        if (!solver.solve())
-            return {};
-
-        SupportSolution res;
-        res.optimal = solver.getCplexStatus() == IloCplex::Status::Optimal;
-        res.aborted = solver.getCplexStatus() == IloCplex::Status::AbortTimeLim;
-
-        IloNumArray vars(m_env, m_variables.getSize());
-        solver.getValues(vars, m_variables);
-        std::vector<double> deb_vars;
-        for (int i = 0; i < m_variables.getSize(); ++i)
+        else
         {
-            deb_vars.emplace_back(EpsValue(vars[i]));
-            if (EpsValue(vars[i]) == 1.0)
-                res.ind_set.emplace(i);
+            if (!solver.solve())
+                return {};
         }
+
+        auto status = solver.getCplexStatus();
+        res.optimal = status == IloCplex::Status::Optimal;
+        res.aborted = status == IloCplex::Status::AbortTimeLim;
+        if (status != IloCplex::Status::AbortUser)
+            UpdateSolution(res, m_variables, solver);
 
         return res;
     }
@@ -187,14 +209,15 @@ MainSolution MainProblemModel::Solve() const
     return m_model->Solve();
 }
 
-void MainProblemModel::AddVariables(const std::set<models::IndependetSet>& ind_sets)
+bool MainProblemModel::AddVariables(const std::set<models::IndependetSet>& ind_sets)
 {
     auto size_before = m_sets.size();
     m_sets += ind_sets;
     if (size_before == m_sets.size())
-        return;
+        return false;
 
     m_model = std::make_unique<MainProblemModelHolder>(m_graph, m_sets);
+    return true;
 }
 
 void AddPerColorConstrains(const Graph& graph, std::set<IndependetSet>& m_sum_vert_less_one, Graph::ColorizationType type)
@@ -239,9 +262,9 @@ SupportProblemModel::SupportProblemModel(const Graph& inv_graph, const Variables
 
 SupportProblemModel::~SupportProblemModel() = default;
 
-SupportSolution SupportProblemModel::Solve(bool conditional) const
+SupportSolution SupportProblemModel::Solve(bool exact) const
 {
-    return m_model->Solve(conditional);
+    return m_model->Solve(exact);
 }
 
 };

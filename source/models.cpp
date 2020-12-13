@@ -143,9 +143,10 @@ struct SupportProblemModelHolder : public ModelHolderBase
             return {};
 
         SupportSolution res;
-        res.optimal = solver.getStatus() == IloCplex::Status::Optimal;
+        res.optimal = solver.getCplexStatus() == IloCplex::Status::Optimal;
+        res.aborted = solver.getCplexStatus() == IloCplex::Status::AbortTimeLim;
 
-        IloNumArray vars(m_env, m_constrains.getSize());
+        IloNumArray vars(m_env, m_variables.getSize());
         solver.getValues(vars, m_variables);
         std::vector<double> deb_vars;
         for (int i = 0; i < m_variables.getSize(); ++i)

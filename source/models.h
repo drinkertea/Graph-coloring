@@ -39,6 +39,7 @@ private:
 struct SupportSolution
 {
     bool optimal = false;
+    bool aborted = false;
     IndependetSet ind_set;
 };
 

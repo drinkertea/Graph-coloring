@@ -12,7 +12,7 @@ namespace models
 using IndependetSet = std::set<uint32_t>;
 using Variables     = std::vector<double>;
 
-struct Solution
+struct MainSolution
 {
     double    objective{ 0.0 };
     Variables variables;
@@ -25,7 +25,7 @@ struct MainProblemModel
     MainProblemModel(const Graph& graph);
     ~MainProblemModel();
 
-    Solution Solve() const;
+    MainSolution Solve() const;
 
     void AddVariables(const std::set<models::IndependetSet>& ind_sets);
 
@@ -36,6 +36,12 @@ private:
     std::unique_ptr<MainProblemModelHolder> m_model;
 };
 
+struct SupportSolution
+{
+    bool optimal = false;
+    IndependetSet ind_set;
+};
+
 struct SupportProblemModelHolder;
 
 struct SupportProblemModel
@@ -43,7 +49,7 @@ struct SupportProblemModel
     SupportProblemModel(const Graph& inv_graph, const Variables& weights);
     ~SupportProblemModel();
 
-    IndependetSet Solve() const;
+    SupportSolution Solve(bool conditional = true) const;
 
 private:
     const Graph&            m_graph;

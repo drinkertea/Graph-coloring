@@ -77,7 +77,7 @@ struct MainProblemModelHolder : public ModelHolderBase
         m_model.add(obj);
     }
 
-    Solution Solve() const
+    MainSolution Solve() const
     {
         IloCplex solver(m_model);
         solver.setOut(m_env.getNullStream());
@@ -85,7 +85,7 @@ struct MainProblemModelHolder : public ModelHolderBase
         if (!solver.solve())
             return {};
 
-        Solution res{};
+        MainSolution res{};
         res.objective = solver.getObjValue();
         res.variables.resize(m_constrains.getSize(), 0.0);
 
@@ -99,6 +99,12 @@ struct MainProblemModelHolder : public ModelHolderBase
 
     ~MainProblemModelHolder() override = default;
 };
+
+ILOSIMPLEXCALLBACK0(MyCallback)
+{
+    if (isFeasible() && EpsValue(getObjValue()) > 1.0)
+        abort();
+}
 
 struct SupportProblemModelHolder : public ModelHolderBase
 {
@@ -123,22 +129,30 @@ struct SupportProblemModelHolder : public ModelHolderBase
         m_model.add(m_constrains);
     }
 
-    IndependetSet Solve() const
+    SupportSolution Solve(bool conditional) const
     {
         IloCplex solver(m_model);
         solver.setOut(m_env.getNullStream());
 
+        if (conditional)
+        {
+            solver.setParam(IloCplex::Param::TimeLimit, 0.5);
+            solver.use(MyCallback(m_env));
+        }
         if (!solver.solve())
             return {};
 
-        IndependetSet res;
+        SupportSolution res;
+        res.optimal = solver.getStatus() == IloCplex::Status::Optimal;
 
         IloNumArray vars(m_env, m_constrains.getSize());
         solver.getValues(vars, m_variables);
+        std::vector<double> deb_vars;
         for (int i = 0; i < m_variables.getSize(); ++i)
         {
+            deb_vars.emplace_back(EpsValue(vars[i]));
             if (EpsValue(vars[i]) == 1.0)
-                res.emplace(i);
+                res.ind_set.emplace(i);
         }
 
         return res;
@@ -167,7 +181,7 @@ MainProblemModel::MainProblemModel(const Graph& graph)
 
 MainProblemModel::~MainProblemModel() = default;
 
-Solution MainProblemModel::Solve() const
+MainSolution MainProblemModel::Solve() const
 {
     return m_model->Solve();
 }
@@ -224,9 +238,9 @@ SupportProblemModel::SupportProblemModel(const Graph& inv_graph, const Variables
 
 SupportProblemModel::~SupportProblemModel() = default;
 
-IndependetSet SupportProblemModel::Solve() const
+SupportSolution SupportProblemModel::Solve(bool conditional) const
 {
-    return m_model->Solve();
+    return m_model->Solve(conditional);
 }
 
 };

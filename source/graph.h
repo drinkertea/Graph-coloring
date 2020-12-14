@@ -93,6 +93,21 @@ struct Graph
     Graph GetSubGraph(uint32_t vertex) const;
     Graph GetInversed() const;
 
+    void AdjustIndSet(std::set<uint32_t>& ind_set) const
+    {
+        auto it = ind_set.begin();
+        std::set<uint32_t> left = m_non_adj[*it++];
+        while (it != ind_set.end())
+            left *= m_non_adj[*it++];
+
+        while (!left.empty())
+        {
+            auto node = *left.begin();
+            left *= m_non_adj[node];
+            ind_set.emplace(node);
+        }
+    }
+
     void GetWeightHeuristicConstrFor(
         size_t start,
         const std::vector<double>& weights,

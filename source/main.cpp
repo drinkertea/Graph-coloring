@@ -9,36 +9,66 @@
 #include <thread>
 #include <Windows.h>
 
-void Test(const std::string& file_path, const std::string& path)
+struct Task
+{
+    std::string graph;
+    size_t      answer = 0;
+};
+
+std::vector<uint32_t> ValidColoring(const Graph& g, const ColorizationResult& res)
+{
+    std::vector<std::set<uint32_t>> colors_per_vertex(g.GetSize());
+    for (uint32_t i = 0; i < res.color_coverage.size(); ++i)
+    {
+        for (auto v : res.color_coverage[i])
+        {
+            colors_per_vertex[v].emplace(i);
+        }
+    }
+
+    for (uint32_t a = 0; a < g.GetSize(); ++a)
+    {
+        for (auto b : g.GetNeighbors(a))
+        {
+            if (!(colors_per_vertex[a] * colors_per_vertex[b]).empty())
+                return {};
+        }
+    }
+
+    std::vector<uint32_t> colors;
+    for (uint32_t a = 0; a < g.GetSize(); ++a)
+    {
+        if (colors_per_vertex[a].empty())
+            return {};
+        colors.emplace_back(*colors_per_vertex[a].begin());
+    }
+
+    return colors;
+}
+
+void Test(const std::string& file_path, const std::string& path, size_t answer)
 {
     std::cout << "Test graph: " << path << std::endl;
 
-    uint64_t int_elapsed = 0;
-    uint64_t bnb_elapsed = 0;
+    uint64_t bnp_elapsed = 0;
     std::string test_result = "CRASHED";
-    std::vector<uint32_t> max_clique;
+    std::vector<uint32_t> colors;
+    ColorizationResult res;
 
-    //CliqueFinder cf{ false };
     try
     {
         Graph g(path);
 
         Timer timer;
         TimeoutThread break_timer(std::chrono::seconds(7200));
-        std::vector<uint32_t> int_result = {};// cf.FindMaxCliqueInteger(g);
-        int_elapsed = timer.Stop();
 
-        timer.Reset();
-        auto bnb_result = int_result;// cf.FindMaxCliqueBnB(g);
-        bnb_elapsed = timer.Stop();
+        res = solver::Colorize(g);
 
-        test_result = int_result.size() == bnb_result.size() ? "PASSED" : "FAILED";
-        //if (cf.stop)
-        //    test_result += " INTERRUPTED";
+        bnp_elapsed = timer.Stop();
 
-        max_clique = bnb_result;
-
-        solver::Colorize(g);
+        colors = ValidColoring(g, res);
+        auto passed = answer == res.color_coverage.size() && !colors.empty();
+        test_result = passed ? "PASSED" : "FAILED";
     }
     catch (std::runtime_error&)
     {
@@ -49,16 +79,15 @@ void Test(const std::string& file_path, const std::string& path)
         std::stringstream ss_far;
         ss_far << "Test graph:                      " << path << std::endl;
         ss_far << "Result:                          " << test_result << std::endl;
-        ss_far << "CPLEX integer algorithm time:    " << int_elapsed << " ms" << std::endl;
-        ss_far << "Branch and Bound algorithm time: " << bnb_elapsed << " ms" << std::endl;
+        ss_far << "Branch and price algorithm time: " << bnp_elapsed << " ms" << std::endl;
         //ss_far << "Branch and Bound branch count:   " << cf.branch_count << std::endl;
         //ss_far << "Average heurisrtic time:         " << cf.average_heuristic_time << std::endl;
         //ss_far << "Average solve time:              " << cf.average_solve_time << std::endl;
         //ss_far << "Average loop time:               " << cf.average_loop_time << std::endl;
-        ss_far << "Max clique size:                 " << max_clique.size() << std::endl;
-        ss_far << "Max clique:                      ";
-        for (auto v : max_clique)
-            ss_far << v << " ";
+        ss_far << "Colors count:                    " << res.color_coverage.size() << std::endl;
+        ss_far << "Colors:                          ";
+        for (auto c : colors)
+            ss_far << c << " ";
         ss_far << std::endl;
         ss_far << std::endl;
 
@@ -67,7 +96,7 @@ void Test(const std::string& file_path, const std::string& path)
     }
     {
         std::stringstream ss_short;
-        ss_short << path << ";" << bnb_elapsed;
+        ss_short << path << ";" << bnp_elapsed;
         ss_short << std::endl;
 
         std::ofstream outfile_short("short_" + file_path, std::ios_base::app);
@@ -75,14 +104,17 @@ void Test(const std::string& file_path, const std::string& path)
     }
 }
 
-std::vector<std::string> ReadTasks(const std::string& path)
+std::vector<Task> ReadTasks(const std::string& path)
 {
     std::ifstream myfile(path);
     std::string line;
-    std::vector<std::string> tasks;
+    std::vector<Task> tasks;
     while (std::getline(myfile, line))
     {
-        tasks.push_back(line);
+        Task t;
+        std::istringstream ss(line);
+        ss >> t.graph >> t.answer;
+        tasks.push_back(t);
     }
     return tasks;
 }
@@ -90,7 +122,7 @@ std::vector<std::string> ReadTasks(const std::string& path)
 void RunTests(const std::string& prefix)
 {
     for (const auto& test : ReadTasks("tasks/" + prefix + ".txt"))
-        Test(prefix + "_test_results.txt", "graphs/" + test);
+        Test(prefix + "_test_results.txt", "graphs/" + test.graph, test.answer);
 }
 
 int main()

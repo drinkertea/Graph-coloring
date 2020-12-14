@@ -112,6 +112,7 @@ struct MainProblemModelHolder : public ModelHolderBase
         IloCplex solver(m_model);
         ScopeGuard sg{ [&solver] { solver.end(); } };
         solver.setOut(m_env.getNullStream());
+        solver.setWarning(m_env.getNullStream());
 
         if (!solver.solve())
             return {};
@@ -195,8 +196,9 @@ ConstrainsGuard::~ConstrainsGuard()
 }
 
 template <typename T>
-void UpdateSolution(SupportSolution& solution, const IloNumVarArray& variables, T& owner)
+void UpdateSolution(const SolutionCallback& callback, const IloNumVarArray& variables, T& owner)
 {
+    SupportSolution solution{};
     solution.upper_bound = owner.getBestObjValue();
 
     IloNumArray vars(owner.getEnv(), variables.getSize());
@@ -208,14 +210,17 @@ void UpdateSolution(SupportSolution& solution, const IloNumVarArray& variables, 
         if (EpsValue(vars[i]) == 1.0)
             solution.ind_set.emplace(i);
     }
+
+    callback(solution);
 }
 
-ILOCPLEXGOAL2(MyBranchGoal, SupportSolution&, m_solution, IloNumVarArray, m_variables)
+ILOCPLEXGOAL3(MyBranchGoal, const SolutionCallback&, m_callback, IloNumVarArray, m_variables, bool, m_exact)
 {
     if (isIntegerFeasible() && EpsValue(getObjValue()) > 1.0)
     {
-        UpdateSolution(m_solution, m_variables, *this);
-        abort();
+        UpdateSolution(m_callback, m_variables, *this);
+        if (!m_exact)
+            abort();
     }
     return IloCplex::Goal{};
 }
@@ -260,7 +265,7 @@ struct SupportProblemModelHolder : public ModelHolderBase
         m_model.add(m_constrains);
     }
 
-    SupportSolution Solve(const Variables& weights, bool exact)
+    SolutionStatus Solve(const SolutionCallback& callback, const Variables& weights, bool exact)
     {
         IloExpr obj_expr(m_env);
         for (int i = 0; i < m_variables.getSize(); ++i)
@@ -270,27 +275,25 @@ struct SupportProblemModelHolder : public ModelHolderBase
         IloCplex solver(m_model);
         ScopeGuard sg{ [&solver] { solver.end(); } };
         solver.setOut(m_env.getNullStream());
+        solver.setWarning(m_env.getNullStream());
 
-        SupportSolution res{};
         if (!exact)
-        {
             solver.setParam(IloCplex::Param::TimeLimit, 0.5);
-            if (!solver.solve(MyBranchGoal(m_env, res, m_variables)))
-                return {};
-        }
-        else
-        {
-            if (!solver.solve())
-                return {};
-        }
+
+        if (!solver.solve(MyBranchGoal(m_env, callback, m_variables, exact)))
+            return {};
 
         auto status = solver.getCplexStatus();
-        res.optimal = status == IloCplex::Status::Optimal;
-        res.aborted = status == IloCplex::Status::AbortTimeLim;
         if (status != IloCplex::Status::AbortUser)
-            UpdateSolution(res, m_variables, solver);
+            UpdateSolution(callback, m_variables, solver);
 
-        return res;
+        switch (status)
+        {
+        case IloCplex::Status::Optimal:      return SolutionStatus::Optimal;
+        case IloCplex::Status::AbortTimeLim: return SolutionStatus::AbortedByTimelimit;
+        case IloCplex::Status::AbortUser:    return SolutionStatus::AbortedByUser;
+        default:                             return SolutionStatus::Unknown;
+        }
     }
 
     ~SupportProblemModelHolder() override = default;
@@ -358,14 +361,14 @@ bool MainProblemModel::AddVariables(const std::set<models::IndependetSet>& ind_s
         return false;
 
     m_model = std::make_unique<MainProblemModelHolder>(m_graph, m_vars);
-    for (auto constr_weak : m_constrains)
-    {
+    std::erase_if(m_constrains, [this](auto& constr_weak) {
         auto constr = constr_weak.lock();
         if (!constr)
-            continue;
+            return true;
 
         constr->OnModelUpdate(*m_model);
-    }
+        return false;
+    });
     return true;
 }
 
@@ -419,9 +422,9 @@ SupportProblemModel::SupportProblemModel(const Graph& inv_graph)
 
 SupportProblemModel::~SupportProblemModel() = default;
 
-SupportSolution SupportProblemModel::Solve(const Variables& weights, bool exact)
+SolutionStatus SupportProblemModel::Solve(const SolutionCallback& callback, const Variables& weights, bool exact)
 {
-    return m_model->Solve(weights, exact);
+    return m_model->Solve(callback, weights, exact);
 }
 
 ConstrainPtr SupportProblemModel::AddConstrain(std::set<models::IndependetSet>& sets, const IndependetSet& ind_set)

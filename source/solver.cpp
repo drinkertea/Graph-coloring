@@ -71,26 +71,16 @@ struct BnPSolver
 private:
     auto Branching(models::MainSolution& solution)
     {
-        int way = int(solution.branching_variable - 0.5 > 0);
+        int way = int(solution.branching_variable - 0.25 > 0);
         return std::array<int, 2>{ way, way == 0 ? 1 : 0 };
     }
 
-    bool Generation(models::MainSolution& solution, bool exact)
+    bool GenerationLoop(models::MainSolution& solution, bool exact)
     {
         double prev_solution = 0.0;
         while (true)
         {
-            bool find_exact = exact || solution.IsInteger();
-            auto support_solution = m_support_model.Solve(solution.dual_variables, find_exact);
-            auto lower_bound = std::ceil(solution.objective / support_solution.upper_bound);
-            if (static_cast<uint32_t>(lower_bound) >= m_solutons.GetBestValue())
-                return true;
-
-            if (support_solution.ind_set.empty())
-                return false;
-
-            m_graph.AdjustIndSet(support_solution.ind_set);
-            std::set<models::IndependetSet> ind_sets{ support_solution.ind_set };
+            std::set<models::IndependetSet> ind_sets{};
             if (!exact && solution.dual_search_index != g_invalid_index)
             {
                 m_graph.GetWeightHeuristicConstrFor(solution.dual_search_index, solution.dual_variables, [&](const auto& constr) {
@@ -101,12 +91,34 @@ private:
                     ind_sets.emplace(std::move(ind_set));
                 });
             }
+            if (ind_sets.empty())
+            {
+                bool find_exact = exact || solution.IsInteger();
+                bool can_prune = false;
+
+                auto support_solution = m_support_model.Solve(
+                    [&](const models::SupportSolution& sol)
+                    {
+                        auto lower_bound = std::ceil(solution.objective / sol.upper_bound);
+                        can_prune |= static_cast<uint32_t>(lower_bound) >= m_solutons.GetBestValue();
+                        ind_sets.emplace(m_graph.AdjustIndSet(sol.ind_set));
+                    },
+                    solution.dual_variables,
+                    find_exact
+                );
+
+                if (can_prune)
+                    return true;
+            }
 
             if (!m_main_model.AddVariables(ind_sets))
                 return false;
 
             solution = m_main_model.Solve();
-            if (!exact && std::abs(solution.objective - prev_solution) < 0.0001)
+            if (solution.primal_branching_index == g_invalid_index)
+                m_solutons.OnSolution(solution);
+
+            if (std::abs(solution.objective - prev_solution) < 0.001)
                 return false;
 
             prev_solution = solution.objective;
@@ -120,7 +132,7 @@ private:
 
         for (auto exact : { false, true })
         {
-            if (Generation(solution, exact))
+            if (GenerationLoop(solution, exact))
                 return;
         }
 
@@ -132,7 +144,9 @@ private:
         for (auto branch : Branching(solution))
         {
             auto main_constr = m_main_model.AddConstrain(solution.primal_branching_index, branch);
-            auto sup_constr = branch == 0 ? m_support_model.AddConstrain(m_forbidden_sets, m_main_model.GetVariable(solution.primal_branching_index)) : nullptr;
+            auto sup_constr = branch == 0 ?
+                m_support_model.AddConstrain(m_forbidden_sets, m_main_model.GetVariable(solution.primal_branching_index)) :
+                nullptr;
 
             BnP();
         }

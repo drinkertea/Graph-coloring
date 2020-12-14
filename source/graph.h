@@ -108,6 +108,13 @@ struct Graph
         }
     }
 
+    std::set<uint32_t> AdjustIndSet(const std::set<uint32_t>& ind_set) const
+    {
+        std::set<uint32_t> res = ind_set;
+        AdjustIndSet(res);
+        return res;
+    }
+
     void GetWeightHeuristicConstrFor(
         size_t start,
         const std::vector<double>& weights,

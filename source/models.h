@@ -68,10 +68,18 @@ private:
 
 struct SupportSolution
 {
-    bool          optimal = false;
-    bool          aborted = false;
     double        upper_bound = 0.0;
     IndependetSet ind_set;
+};
+using SolutionCallback = std::function<void(const SupportSolution&)>;
+
+enum class SolutionStatus
+{
+    Optimal = 0,
+    AbortedByTimelimit,
+    AbortedByUser,
+
+    Unknown
 };
 
 struct SupportProblemModelHolder;
@@ -81,7 +89,7 @@ struct SupportProblemModel
     SupportProblemModel(const Graph& inv_graph);
     ~SupportProblemModel();
 
-    SupportSolution Solve(const Variables& weights, bool exact = false);
+    SolutionStatus Solve(const SolutionCallback& callback, const Variables& weights, bool exact = false);
 
     // Add forbidden set as constrain
     ConstrainPtr AddConstrain(std::set<models::IndependetSet>& sets, const IndependetSet& ind_set);

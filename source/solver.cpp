@@ -27,7 +27,7 @@ struct SolutionManager
         if (!IsInteger(solution.objective) || static_cast<uint32_t>(solution.objective) >= m_best_solution_value)
             return;
 
-        if (m_best_solution.color_coverage.size() < solution.color_coverage.size())
+        if (m_best_solution.color_coverage.size() <= solution.color_coverage.size())
             return;
 
         m_best_solution_value = (uint32_t)solution.color_coverage.size();
@@ -71,7 +71,7 @@ struct BnPSolver
 private:
     auto Branching(models::MainSolution& solution)
     {
-        int way = rand() % 2;
+        int way = int(solution.branching_variable - 0.5 > 0);
         return std::array<int, 2>{ way, way == 0 ? 1 : 0 };
     }
 
@@ -80,7 +80,8 @@ private:
         double prev_solution = 0.0;
         while (true)
         {
-            auto support_solution = m_support_model.Solve(solution.dual_variables, exact);
+            bool find_exact = exact || solution.IsInteger();
+            auto support_solution = m_support_model.Solve(solution.dual_variables, find_exact);
             auto lower_bound = std::ceil(solution.objective / support_solution.upper_bound);
             if (static_cast<uint32_t>(lower_bound) >= m_solutons.GetBestValue())
                 return true;
@@ -88,6 +89,7 @@ private:
             if (support_solution.ind_set.empty())
                 return false;
 
+            m_graph.AdjustIndSet(support_solution.ind_set);
             std::set<models::IndependetSet> ind_sets{ support_solution.ind_set };
             if (!exact && solution.dual_search_index != g_invalid_index)
             {
@@ -104,7 +106,7 @@ private:
                 return false;
 
             solution = m_main_model.Solve();
-            if (std::abs(solution.objective - prev_solution) < 0.001)
+            if (!exact && std::abs(solution.objective - prev_solution) < 0.0001)
                 return false;
 
             prev_solution = solution.objective;

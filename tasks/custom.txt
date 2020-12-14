@@ -1,13 +1,14 @@
-queen5_5.col
-queen6_6.col
-queen7_7.col
-queen8_8.col
-queen8_12.col
-queen9_9.col
-queen10_10.col
-queen11_11.col
-queen12_12.col
-queen13_13.col
-queen14_14.col
-queen15_15.col
-queen16_16.col
+queen5_5.col 5
+queen6_6.col 7
+queen7_7.col 7
+myciel3.col 4
+queen8_8.col 9
+huck.col 11
+jean.col 10
+queen9_9.col 10
+david.col 11
+queen8_12.col 12
+anna.col 11
+myciel4.col 5
+myciel5.col 6
+myciel6.col 7

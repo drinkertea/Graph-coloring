@@ -32,7 +32,13 @@ struct MainSolution
     size_t        primal_branching_index = g_invalid_index;
     size_t        dual_search_index      = g_invalid_index;
     Variables     dual_variables;
+    double        branching_variable = 0.0;
     ColorCoverage color_coverage;
+
+    bool IsInteger() const
+    {
+        return primal_branching_index == g_invalid_index;
+    }
 };
 
 struct MainProblemModel

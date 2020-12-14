@@ -12,6 +12,16 @@
 namespace models
 {
 
+struct ScopeGuard
+{
+    std::function<void(void)> callback;
+
+    ~ScopeGuard()
+    {
+        callback();
+    }
+};
+
 struct ModelHolderBase
 {
     ModelHolderBase(size_t vars_size, size_t constr_size, IloNumVar::Type type)
@@ -100,6 +110,7 @@ struct MainProblemModelHolder : public ModelHolderBase
     MainSolution Solve() const
     {
         IloCplex solver(m_model);
+        ScopeGuard sg{ [&solver] { solver.end(); } };
         solver.setOut(m_env.getNullStream());
 
         if (!solver.solve())
@@ -122,6 +133,9 @@ struct MainProblemModelHolder : public ModelHolderBase
             res.dual_variables[i] = dual_vars[i];
         });
 
+        if (res.primal_branching_index != g_invalid_index)
+            res.branching_variable = primal_vars[res.primal_branching_index];
+
         return res;
     }
 
@@ -141,7 +155,7 @@ private:
             if (IsInteger(val))
                 continue;
 
-            if (val <= max)
+            if (EpsValue(val) <= max)
                 continue;
 
             max = val;
@@ -183,9 +197,7 @@ ConstrainsGuard::~ConstrainsGuard()
 template <typename T>
 void UpdateSolution(SupportSolution& solution, const IloNumVarArray& variables, T& owner)
 {
-    //solution.upper_bound = owner.getObjValue();
-    //if (EpsValue(solution.upper_bound) == 0.0)
-        solution.upper_bound = owner.getBestObjValue();
+    solution.upper_bound = owner.getBestObjValue();
 
     IloNumArray vars(owner.getEnv(), variables.getSize());
     owner.getValues(vars, variables);
@@ -256,6 +268,7 @@ struct SupportProblemModelHolder : public ModelHolderBase
         m_obj.setExpr(obj_expr);
 
         IloCplex solver(m_model);
+        ScopeGuard sg{ [&solver] { solver.end(); } };
         solver.setOut(m_env.getNullStream());
 
         SupportSolution res{};

@@ -24,6 +24,16 @@ struct SolutionManager
 
     void OnSolution(const models::MainSolution& solution)
     {
+        if (!IsInteger(solution.objective) || static_cast<uint32_t>(solution.objective) >= m_best_solution_value)
+            return;
+
+        if (m_best_solution.color_coverage.size() < solution.color_coverage.size())
+            return;
+
+        m_best_solution_value = (uint32_t)solution.color_coverage.size();
+        m_best_solution.color_coverage.clear();
+        for (const auto& ind_set : solution.color_coverage)
+            m_best_solution.color_coverage.emplace_back(ind_set);
     }
 
     uint32_t GetBestValue() const
@@ -47,6 +57,7 @@ struct BnPSolver
         : m_graph(graph)
         , m_inv_graph(m_graph.GetInversed())
         , m_main_model(m_graph)
+        , m_support_model(m_inv_graph)
         , m_solutons(m_graph)
     {
     }
@@ -58,25 +69,10 @@ struct BnPSolver
     }
 
 private:
-    size_t SelectBranch(const models::Variables& vars)
+    auto Branching(models::MainSolution& solution)
     {
-        double min = std::numeric_limits<double>::max();
-        size_t res = g_invalid_index;
-
-        for (size_t i = 0; i < vars.size(); ++i)
-        {
-            auto val = vars[i];
-            if (IsInteger(val))
-                continue;
-
-            if (val >= min)
-                continue;
-
-            min = val;
-            res = i;
-        }
-
-        return res;
+        int way = rand() % 2;
+        return std::array<int, 2>{ way, way == 0 ? 1 : 0 };
     }
 
     bool Generation(models::MainSolution& solution, bool exact)
@@ -84,8 +80,7 @@ private:
         double prev_solution = 0.0;
         while (true)
         {
-            models::SupportProblemModel support_model(m_inv_graph, solution.variables);
-            auto support_solution = support_model.Solve(exact);
+            auto support_solution = m_support_model.Solve(solution.dual_variables, exact);
             auto lower_bound = std::ceil(solution.objective / support_solution.upper_bound);
             if (static_cast<uint32_t>(lower_bound) >= m_solutons.GetBestValue())
                 return true;
@@ -94,19 +89,22 @@ private:
                 return false;
 
             std::set<models::IndependetSet> ind_sets{ support_solution.ind_set };
-            auto index = SelectBranch(solution.variables);
-            if (index == g_invalid_index)
-                return true;
+            if (!exact && solution.dual_search_index != g_invalid_index)
+            {
+                m_graph.GetWeightHeuristicConstrFor(solution.dual_search_index, solution.dual_variables, [&](const auto& constr) {
+                    models::IndependetSet ind_set{ constr.begin(), constr.end() };
+                    if (m_forbidden_sets.count(ind_set))
+                        return;
 
-            m_graph.GetWeightHeuristicConstrFor(index, solution.variables, [&](const auto& constr) {
-                ind_sets.emplace(constr.begin(), constr.end());
-            });
+                    ind_sets.emplace(std::move(ind_set));
+                });
+            }
 
             if (!m_main_model.AddVariables(ind_sets))
                 return false;
 
             solution = m_main_model.Solve();
-            if (std::abs(solution.objective - prev_solution) < 0.01)
+            if (std::abs(solution.objective - prev_solution) < 0.001)
                 return false;
 
             prev_solution = solution.objective;
@@ -123,30 +121,34 @@ private:
             if (Generation(solution, exact))
                 return;
         }
-        
+
+        if (solution.primal_branching_index == g_invalid_index)
+        {
+            return m_solutons.OnSolution(solution);
+        }
+
+        for (auto branch : Branching(solution))
+        {
+            auto main_constr = m_main_model.AddConstrain(solution.primal_branching_index, branch);
+            auto sup_constr = branch == 0 ? m_support_model.AddConstrain(m_forbidden_sets, m_main_model.GetVariable(solution.primal_branching_index)) : nullptr;
+
+            BnP();
+        }
     }
 
 private:
-    const Graph&             m_graph;
-    const Graph              m_inv_graph;
-    SolutionManager          m_solutons;
-    models::MainProblemModel m_main_model;
+    const Graph&                    m_graph;
+    const Graph                     m_inv_graph;
+    SolutionManager                 m_solutons;
+    models::MainProblemModel        m_main_model;
+    models::SupportProblemModel     m_support_model;
+    std::set<models::IndependetSet> m_forbidden_sets;
 };
 
 ColorizationResult Colorize(const Graph& graph)
 {
     BnPSolver solver(graph);
-    solver.Solve();
-    models::MainProblemModel model{ graph };
-    auto solution = model.Solve();
-
-
-
-    auto inv_graph = graph.GetInversed();
-    models::SupportProblemModel sp(inv_graph, solution.variables);
-    auto sol = sp.Solve();
-
-    return ColorizationResult();
+    return solver.Solve();
 }
 
 };

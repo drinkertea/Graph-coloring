@@ -2,23 +2,38 @@
 
 #include <memory>
 #include <vector>
+#include <deque>
 #include <set>
+#include "common.h"
 
 struct Graph;
 
 namespace models
 {
 
-using IndependetSet = std::set<uint32_t>;
-using Variables     = std::vector<double>;
+using IndependetSet    = std::set<uint32_t>;
+using IndependetSetRef = std::reference_wrapper<const IndependetSet>;
+using ColorCoverage    = std::vector<IndependetSetRef>;
+using Variables        = std::vector<double>;
+
+struct MainProblemModelHolder;
+
+struct IScopedConstrain
+{
+    virtual void OnModelUpdate(const MainProblemModelHolder& model) {};
+    virtual ~IScopedConstrain() = default;
+};
+
+using ConstrainPtr = std::shared_ptr<IScopedConstrain>;
 
 struct MainSolution
 {
-    double    objective{ 0.0 };
-    Variables variables;
+    double        objective{ 0.0 };
+    size_t        primal_branching_index = g_invalid_index;
+    size_t        dual_search_index      = g_invalid_index;
+    Variables     dual_variables;
+    ColorCoverage color_coverage;
 };
-
-struct MainProblemModelHolder;
 
 struct MainProblemModel
 {
@@ -29,11 +44,20 @@ struct MainProblemModel
 
     bool AddVariables(const std::set<models::IndependetSet>& ind_sets);
 
+    ConstrainPtr AddConstrain(size_t index, int type);
+
+    const IndependetSet& GetVariable(size_t index) const
+    {
+        return m_vars[index];
+    }
+
 private:
-    const Graph&            m_graph;
-    std::set<IndependetSet> m_sets;
+    const Graph&              m_graph;
+    std::set<IndependetSet>   m_sets;
+    std::deque<IndependetSet> m_vars;
 
     std::unique_ptr<MainProblemModelHolder> m_model;
+    std::vector<std::weak_ptr<IScopedConstrain>> m_constrains;
 };
 
 struct SupportSolution
@@ -48,10 +72,13 @@ struct SupportProblemModelHolder;
 
 struct SupportProblemModel
 {
-    SupportProblemModel(const Graph& inv_graph, const Variables& weights);
+    SupportProblemModel(const Graph& inv_graph);
     ~SupportProblemModel();
 
-    SupportSolution Solve(bool exact = false) const;
+    SupportSolution Solve(const Variables& weights, bool exact = false);
+
+    // Add forbidden set as constrain
+    ConstrainPtr AddConstrain(std::set<models::IndependetSet>& sets, const IndependetSet& ind_set);
 
 private:
     const Graph&            m_graph;

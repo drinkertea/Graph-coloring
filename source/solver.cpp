@@ -97,11 +97,11 @@ private:
                 bool can_prune = false;
 
                 auto support_solution = m_support_model.Solve(
-                    [&](const models::SupportSolution& sol)
+                    [&](const models::SupportSolution& support_solution)
                     {
-                        auto lower_bound = std::ceil(solution.objective / sol.upper_bound);
+                        auto lower_bound = std::ceil(solution.objective / support_solution.upper_bound);
                         can_prune |= static_cast<uint32_t>(lower_bound) >= m_solutons.GetBestValue();
-                        ind_sets.emplace(m_graph.AdjustIndSet(sol.ind_set));
+                        ind_sets.emplace(m_graph.AdjustIndSet(support_solution.ind_set));
                     },
                     solution.dual_variables,
                     find_exact
@@ -115,11 +115,8 @@ private:
                 return false;
 
             solution = m_main_model.Solve();
-            if (solution.primal_branching_index == g_invalid_index)
+            if (solution.IsInteger())
                 m_solutons.OnSolution(solution);
-
-            if (std::abs(solution.objective - prev_solution) < 0.001)
-                return false;
 
             prev_solution = solution.objective;
         }
@@ -136,7 +133,7 @@ private:
                 return;
         }
 
-        if (solution.primal_branching_index == g_invalid_index)
+        if (solution.IsInteger())
         {
             return m_solutons.OnSolution(solution);
         }

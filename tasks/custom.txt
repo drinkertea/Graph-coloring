@@ -5,10 +5,14 @@ myciel3.col 4
 queen8_8.col 9
 huck.col 11
 jean.col 10
-queen9_9.col 10
 david.col 11
 queen8_12.col 12
 anna.col 11
+queen9_9.col 10
+queen10_10.col 11
+queen11_11.col 11
+queen12_12.col 13
+queen13_13.col 13
 myciel4.col 5
 myciel5.col 6
 myciel6.col 7
